@@ -44,8 +44,7 @@ for message in st.session_state.messages:
 
 # ユーザーからの画像アップロードと入力欄
 uploaded_file = st.file_uploader(
-    "📷 エラー画面やPCの写真を添付する（任意）",
-    type=["jpg", "jpeg", "png"],
+    "📷 エラー画面やPCの写真を添付する（任意）", type=["jpg", "jpeg", "png"]
 )
 user_query = st.chat_input("例：電源は入るのに画面が真っ暗です...")
 
@@ -66,12 +65,12 @@ if user_query:
       st.image(img_to_display, width=300)
     st.markdown(user_query)
 
-  # Geminiに送信して返答をもらう
+  # Geminiに送信して返答をもらう（モデル名を最新に指定）
   with st.chat_message("assistant"):
     with st.spinner("AIが原因を分析中..."):
       try:
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-flash-latest",
             contents=contents,
             config=types.GenerateContentConfig(
                 system_instruction=pc_expert_instruction,
