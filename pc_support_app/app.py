@@ -12,7 +12,7 @@ st.write(
     "パソコンのトラブル内容や、エラー画面の写真をアップロードして相談してください。"
 )
 
-# APIキーの安全な読み込み（StreamlitのSecrets機能を使用）
+# APIキーの安全な読み込み
 if "GEMINI_API_KEY" in st.secrets:
   client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 else:
@@ -31,7 +31,17 @@ pc_expert_instruction = """
 3. 必要に応じてユーザーに優しく逆質問をして、状況を深掘りする。
 """
 
-# 画面上のチャット履歴の初期化
+# 1. チャットセッション（会話履歴を保持する機能）を初期化
+if "chat" not in st.session_state:
+  st.session_state.chat = client.chats.create(
+      model="gemini-flash-latest",
+      config=types.GenerateContentConfig(
+          system_instruction=pc_expert_instruction,
+          temperature=0.3,
+      ),
+  )
+
+# 2. 画面上のチャット表示用履歴の初期化
 if "messages" not in st.session_state:
   st.session_state.messages = []
 
@@ -56,7 +66,7 @@ if user_query:
     img_to_display = Image.open(uploaded_file)
     contents.append(img_to_display)
 
-  # ユーザーの発言を履歴に追加＆表示
+  # ユーザーの発言を画面用履歴に追加＆表示
   st.session_state.messages.append(
       {"role": "user", "content": user_query, "image": img_to_display}
   )
@@ -65,18 +75,11 @@ if user_query:
       st.image(img_to_display, width=300)
     st.markdown(user_query)
 
-  # Geminiに送信して返答をもらう（モデル名を最新に指定）
+  # 3. チャットセッションを使ってAIに送信（会話履歴が自動で引き継がれます）
   with st.chat_message("assistant"):
     with st.spinner("AIが原因を分析中..."):
       try:
-        response = client.models.generate_content(
-            model="gemini-flash-latest",
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=pc_expert_instruction,
-                temperature=0.3,
-            ),
-        )
+        response = st.session_state.chat.send_message(contents)
         st.markdown(response.text)
         st.session_state.messages.append(
             {"role": "assistant", "content": response.text}
