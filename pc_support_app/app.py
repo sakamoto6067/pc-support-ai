@@ -14,7 +14,7 @@ st.write(
 
 # APIキーの安全な読み込み
 if "GEMINI_API_KEY" in st.secrets:
-  client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+  api_key = st.secrets["GEMINI_API_KEY"]
 else:
   st.error(
       "⚠️ APIキーが設定されていません。Streamlitの設定画面（Secrets）で"
@@ -31,8 +31,9 @@ pc_expert_instruction = """
 3. 必要に応じてユーザーに優しく逆質問をして、状況を深掘りする。
 """
 
-# 1. チャットセッション（会話履歴を保持する機能）を初期化
+# チャットセッションの初期化（毎回安全にクライアントを生成してセッションを作る）
 if "chat" not in st.session_state:
+  client = genai.Client(api_key=api_key)
   st.session_state.chat = client.chats.create(
       model="gemini-flash-latest",
       config=types.GenerateContentConfig(
@@ -41,7 +42,7 @@ if "chat" not in st.session_state:
       ),
   )
 
-# 2. 画面上のチャット表示用履歴の初期化
+# 画面上のチャット表示用履歴の初期化
 if "messages" not in st.session_state:
   st.session_state.messages = []
 
@@ -75,7 +76,7 @@ if user_query:
       st.image(img_to_display, width=300)
     st.markdown(user_query)
 
-  # 3. チャットセッションを使ってAIに送信（会話履歴が自動で引き継がれます）
+  # チャットセッションを使ってAIに送信
   with st.chat_message("assistant"):
     with st.spinner("AIが原因を分析中..."):
       try:
@@ -85,4 +86,20 @@ if user_query:
             {"role": "assistant", "content": response.text}
         )
       except Exception as e:
-        st.error(f"エラーが発生しました: {e}")
+        # 万が一セッションが切れた場合は再作成を試みる
+        try:
+          client = genai.Client(api_key=api_key)
+          st.session_state.chat = client.chats.create(
+              model="gemini-flash-latest",
+              config=types.GenerateContentConfig(
+                  system_instruction=pc_expert_instruction,
+                  temperature=0.3,
+              ),
+          )
+          response = st.session_state.chat.send_message(contents)
+          st.markdown(response.text)
+          st.session_state.messages.append(
+              {"role": "assistant", "content": response.text}
+          )
+        except Exception as retry_e:
+          st.error(f"エラーが発生しました: {retry_e}")
