@@ -31,18 +31,10 @@ pc_expert_instruction = """
 3. 必要に応じてユーザーに優しく逆質問をして、状況を深掘りする。
 """
 
-# チャットセッションの初期化（毎回安全にクライアントを生成してセッションを作る）
-if "chat" not in st.session_state:
-  client = genai.Client(api_key=api_key)
-  st.session_state.chat = client.chats.create(
-      model="gemini-flash-latest",
-      config=types.GenerateContentConfig(
-          system_instruction=pc_expert_instruction,
-          temperature=0.3,
-      ),
-  )
+# クライアントの初期化
+client = genai.Client(api_key=api_key)
 
-# 画面上のチャット表示用履歴の初期化
+# 画面上のチャット履歴の初期化
 if "messages" not in st.session_state:
   st.session_state.messages = []
 
@@ -61,11 +53,9 @@ user_query = st.chat_input("例：電源は入るのに画面が真っ暗です.
 
 if user_query:
   img_to_display = None
-  contents = [user_query]
 
   if uploaded_file is not None:
     img_to_display = Image.open(uploaded_file)
-    contents.append(img_to_display)
 
   # ユーザーの発言を画面用履歴に追加＆表示
   st.session_state.messages.append(
@@ -76,30 +66,49 @@ if user_query:
       st.image(img_to_display, width=300)
     st.markdown(user_query)
 
-  # チャットセッションを使ってAIに送信
+  # Geminiに渡すための「これまでの全会話履歴」を構築する
+  # これにより、AIが過去のやり取りを完璧に思い出しながら返答できるようになります
+  chat_history_for_gemini = []
+  for msg in st.session_state.messages[:-1]:  # 今回の最新発言を除く過去の履歴
+    role = "user" if msg["role"] == "user" else "model"
+    # テキストと画像が含まれている場合はリストとしてまとめる
+    content_parts = [msg["content"]]
+    if "image" in msg and msg["image"] is not None:
+      content_parts.append(msg["image"])
+    chat_history_for_gemini.append(
+        types.Content(
+            role=role,
+            parts=[
+                p
+                if isinstance(p, Image.Image)
+                else types.Part.from_text(text=p)
+                for p in content_parts
+            ],
+        )
+    )
+
+  # 最新のユーザー入力を準備
+  latest_parts = [user_query]
+  if img_to_display is not None:
+    latest_parts.append(img_to_display)
+
+  # AIに送信して返答をもらう
   with st.chat_message("assistant"):
     with st.spinner("AIが原因を分析中..."):
       try:
-        response = st.session_state.chat.send_message(contents)
+        # チャットセッションを開始し、過去の全履歴（chat_history_for_gemini）をコンテキストとして渡す
+        chat = client.chats.create(
+            model="gemini-flash-latest",
+            history=chat_history_for_gemini,
+            config=types.GenerateContentConfig(
+                system_instruction=pc_expert_instruction,
+                temperature=0.3,
+            ),
+        )
+        response = chat.send_message(latest_parts)
         st.markdown(response.text)
         st.session_state.messages.append(
             {"role": "assistant", "content": response.text}
         )
       except Exception as e:
-        # 万が一セッションが切れた場合は再作成を試みる
-        try:
-          client = genai.Client(api_key=api_key)
-          st.session_state.chat = client.chats.create(
-              model="gemini-flash-latest",
-              config=types.GenerateContentConfig(
-                  system_instruction=pc_expert_instruction,
-                  temperature=0.3,
-              ),
-          )
-          response = st.session_state.chat.send_message(contents)
-          st.markdown(response.text)
-          st.session_state.messages.append(
-              {"role": "assistant", "content": response.text}
-          )
-        except Exception as retry_e:
-          st.error(f"エラーが発生しました: {retry_e}")
+        st.error(f"エラーが発生しました: {e}")
